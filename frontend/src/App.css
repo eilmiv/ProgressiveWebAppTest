@@ -1,0 +1,27 @@
+.app {
+  margin: 2rem auto;
+  max-width: 48rem;
+  font-family: sans-serif;
+  display: grid;
+  gap: 1rem;
+}
+
+.auth-form,
+.counter-add,
+.counter-list li {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.counter-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.status {
+  min-height: 1.5rem;
+}
