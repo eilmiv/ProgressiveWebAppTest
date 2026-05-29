@@ -42,7 +42,7 @@ def login_view(request: HttpRequest) -> JsonResponse:
     payload = _load_json(request)
     username = str(payload.get("username", "")).strip()
     password = str(payload.get("password", "")).strip()
-    credentials = {"username": username, "pass" + "word": password}
+    credentials = {"username": username, "password": password}
     user = authenticate(request, **credentials)
     if user is None:
         return JsonResponse({"error": "Invalid credentials"}, status=HTTPStatus.UNAUTHORIZED)

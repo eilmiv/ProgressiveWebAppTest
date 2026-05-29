@@ -11,7 +11,9 @@ class CounterApiTests(TestCase):
         self.client = Client()
         self.username = 'alice'
         self.password = 'strong-pass-123'
-        User.objects.create_user(username=self.username, **{"pass" + "word": self.password})
+        user = User(username=self.username)
+        user.set_password(self.password)
+        user.save()
 
     def login(self) -> None:
         response = self.client.post(
