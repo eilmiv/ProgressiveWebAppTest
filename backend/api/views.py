@@ -4,6 +4,7 @@ from uuid import UUID
 
 from django.contrib.auth import authenticate, login, logout
 from django.http import HttpRequest, JsonResponse
+from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_http_methods
 
@@ -101,15 +102,27 @@ def sync_counters(request: HttpRequest) -> JsonResponse:
     deleted_ids = payload.get("deletedIds")
 
     if isinstance(upserts, list):
+        rows_to_upsert = []
         for item in upserts:
             parsed = _parse_counter_payload(item)
             if parsed is None:
                 return JsonResponse({"error": "Invalid upserts payload"}, status=HTTPStatus.BAD_REQUEST)
             counter_id, name, value = parsed
-            Counter.objects.update_or_create(
-                user=request.user,
-                counter_id=counter_id,
-                defaults={"name": name, "value": value},
+            rows_to_upsert.append(
+                Counter(
+                    user=request.user,
+                    counter_id=counter_id,
+                    name=name,
+                    value=value,
+                    updated_at=timezone.now(),
+                )
+            )
+        if rows_to_upsert:
+            Counter.objects.bulk_create(
+                rows_to_upsert,
+                update_conflicts=True,
+                update_fields=["name", "value", "updated_at"],
+                unique_fields=["user", "counter_id"],
             )
 
     if isinstance(deleted_ids, list):

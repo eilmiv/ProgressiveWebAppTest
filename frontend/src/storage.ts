@@ -21,19 +21,22 @@ const transactionDone = (transaction: IDBTransaction): Promise<void> =>
     transaction.onabort = () => reject(transaction.error)
   })
 
-const openDB = (): Promise<IDBDatabase> => {
-  const request = indexedDB.open(DB_NAME, DB_VERSION)
-  request.onupgradeneeded = () => {
-    const db = request.result
-    if (!db.objectStoreNames.contains(COUNTER_STORE)) {
-      db.createObjectStore(COUNTER_STORE, { keyPath: 'id' })
+const openDB = (): Promise<IDBDatabase> =>
+  new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION)
+    request.onupgradeneeded = () => {
+      const db = request.result
+      if (!db.objectStoreNames.contains(COUNTER_STORE)) {
+        db.createObjectStore(COUNTER_STORE, { keyPath: 'id' })
+      }
+      if (!db.objectStoreNames.contains(META_STORE)) {
+        db.createObjectStore(META_STORE)
+      }
     }
-    if (!db.objectStoreNames.contains(META_STORE)) {
-      db.createObjectStore(META_STORE)
-    }
-  }
-  return requestToPromise(request)
-}
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error)
+    request.onblocked = () => reject(new Error('IndexedDB open request was blocked'))
+  })
 
 const withTransaction = async <T>(
   mode: IDBTransactionMode,

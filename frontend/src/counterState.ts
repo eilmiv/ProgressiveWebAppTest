@@ -79,8 +79,8 @@ export const removeCounter = (state: CounterState, counterId: string): CounterSt
     return state
   }
 
-  const { [counterId]: removedCounter, ...nextById } = state.byId
-  void removedCounter
+  const nextById = { ...state.byId }
+  delete nextById[counterId]
   return {
     byId: nextById,
     order: state.order.filter((id) => id !== counterId),
