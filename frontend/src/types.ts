@@ -1,12 +1,5 @@
 export type Counter = {
-  localId: string
-  serverId?: number
+  id: string
   name: string
   value: number
-}
-
-export type AppSnapshot = {
-  version: number
-  username: string | null
-  counters: Counter[]
 }

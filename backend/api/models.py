@@ -3,6 +3,7 @@ from django.db import models
 
 
 class Counter(models.Model):
+    counter_id = models.UUIDField()
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='counters')
     name = models.CharField(max_length=120)
     value = models.IntegerField(default=0)
@@ -10,7 +11,10 @@ class Counter(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['id']
+        ordering = ['created_at']
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'counter_id'], name='uniq_counter_id_per_user'),
+        ]
 
     def __str__(self) -> str:
-        return f"{self.user.username}:{self.name}={self.value}"
+        return f"{self.user.username}:{self.counter_id}:{self.name}={self.value}"

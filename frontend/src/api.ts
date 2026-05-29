@@ -1,4 +1,6 @@
-export type ServerCounter = { id: number; name: string; value: number }
+import type { Counter } from './types'
+
+export type ServerCounter = Counter
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' }
 
@@ -46,32 +48,12 @@ export const logout = async (): Promise<void> => {
 export const fetchCounters = async (): Promise<{ counters: ServerCounter[] }> =>
   await fetchJson('/api/counters')
 
-export const addCounter = async (name: string): Promise<ServerCounter> =>
-  await fetchJson('/api/counters/add', {
+export const syncCounters = async (
+  upserts: Counter[],
+  deletedIds: string[],
+): Promise<{ counters: ServerCounter[] }> =>
+  await fetchJson('/api/counters/sync', {
     method: 'POST',
     headers: { ...JSON_HEADERS, ...csrfHeaders() },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ upserts, deletedIds }),
   })
-
-export const incrementCounter = async (counterId: number): Promise<ServerCounter> =>
-  await fetchJson(`/api/counters/${counterId}/increment`, {
-    method: 'POST',
-    headers: csrfHeaders(),
-  })
-
-export const decrementCounter = async (counterId: number): Promise<ServerCounter> =>
-  await fetchJson(`/api/counters/${counterId}/decrement`, {
-    method: 'POST',
-    headers: csrfHeaders(),
-  })
-
-export const deleteCounter = async (counterId: number): Promise<void> => {
-  const response = await fetch(`/api/counters/${counterId}`, {
-    method: 'DELETE',
-    credentials: 'include',
-    headers: csrfHeaders(),
-  })
-  if (!response.ok) {
-    throw new Error(`Request failed (${response.status})`)
-  }
-}

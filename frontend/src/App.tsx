@@ -1,55 +1,73 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import {
-  addCounter as addCounterApi,
-  decrementCounter as decrementCounterApi,
-  deleteCounter,
-  fetchCounters,
-  incrementCounter as incrementCounterApi,
   login as loginApi,
   logout as logoutApi,
   sessionStatus,
+  syncCounters,
 } from './api'
-import type { ServerCounter } from './api'
 import {
-  createLocalCounter,
-  decrementLocalCounter,
-  incrementLocalCounter,
-  removeLocalCounter,
+  counterStateToList,
+  createCounter,
+  decrementCounter,
+  emptyCounterState,
+  hydrateCounterState,
+  incrementCounter,
+  removeCounter,
+  type CounterState,
+  upsertCounter,
 } from './counterState'
-import { clearSnapshot, loadSnapshot, saveSnapshot } from './storage'
-import type { Counter } from './types'
+import {
+  clearAllLocalData,
+  loadAppState,
+  putCounter,
+  removeCounterRecord,
+  replaceCounters,
+  saveDeletedIds,
+  saveUsername,
+} from './storage'
 import './App.css'
 
-const fromServerCounter = (counter: ServerCounter): Counter => ({
-  localId: `server-${counter.id}`,
-  serverId: counter.id,
-  name: counter.name,
-  value: counter.value,
-})
+const syncAll = async (
+  username: string,
+  state: CounterState,
+  deletedIds: string[],
+): Promise<{ nextState: CounterState; nextDeletedIds: string[] }> => {
+  const response = await syncCounters(counterStateToList(state), deletedIds)
+  const nextState = hydrateCounterState(response.counters)
+  await replaceCounters(response.counters)
+  await saveDeletedIds([])
+  await saveUsername(username)
+  return { nextState, nextDeletedIds: [] }
+}
 
 function App() {
   const [username, setUsername] = useState<string | null>(null)
   const [loginUsername, setLoginUsername] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
   const [counterName, setCounterName] = useState('')
-  const [counters, setCounters] = useState<Counter[]>([])
+  const [counterState, setCounterState] = useState<CounterState>(emptyCounterState())
+  const [deletedIds, setDeletedIds] = useState<string[]>([])
   const [statusMessage, setStatusMessage] = useState('')
 
   useEffect(() => {
     const init = async () => {
-      const snapshot = await loadSnapshot()
-      setUsername(snapshot.username)
-      setCounters(snapshot.counters)
+      const local = await loadAppState()
+      const localState = hydrateCounterState(local.counters)
+      setUsername(local.username)
+      setCounterState(localState)
+      setDeletedIds(local.deletedIds)
 
       try {
         const session = await sessionStatus()
         if (session.isAuthenticated && session.username) {
-          const response = await fetchCounters()
-          const serverCounters = response.counters.map((counter) => fromServerCounter(counter))
+          const synced = await syncAll(session.username, localState, local.deletedIds)
           setUsername(session.username)
-          setCounters(serverCounters)
-          await saveSnapshot({ version: 1, username: session.username, counters: serverCounters })
+          setCounterState(synced.nextState)
+          setDeletedIds(synced.nextDeletedIds)
+        } else {
+          setUsername(null)
+          await saveUsername(null)
         }
       } catch {
         setStatusMessage('Offline mode: using local data')
@@ -59,18 +77,14 @@ function App() {
     void init()
   }, [])
 
-  const persist = async (nextUsername: string | null, nextCounters: Counter[]) => {
-    setCounters(nextCounters)
-    setUsername(nextUsername)
-    await saveSnapshot({ version: 1, username: nextUsername, counters: nextCounters })
-  }
-
   const login = async () => {
     try {
       await sessionStatus()
       const response = await loginApi(loginUsername, loginPassword)
-      const serverCounters = response.counters.map((counter) => fromServerCounter(counter))
-      await persist(response.username, serverCounters)
+      const synced = await syncAll(response.username, counterState, deletedIds)
+      setUsername(response.username)
+      setCounterState(synced.nextState)
+      setDeletedIds(synced.nextDeletedIds)
       setStatusMessage('Logged in')
       setLoginPassword('')
     } catch {
@@ -82,84 +96,76 @@ function App() {
     try {
       await logoutApi()
     } finally {
-      await clearSnapshot()
+      await clearAllLocalData()
       setUsername(null)
-      setCounters([])
+      setCounterState(emptyCounterState())
+      setDeletedIds([])
       setStatusMessage('Logged out and local user data removed')
+    }
+  }
+
+  const syncIfAuthenticated = async (nextState: CounterState, nextDeletedIds: string[]) => {
+    if (!username) {
+      return
+    }
+
+    try {
+      const synced = await syncAll(username, nextState, nextDeletedIds)
+      setCounterState(synced.nextState)
+      setDeletedIds(synced.nextDeletedIds)
+    } catch {
+      setStatusMessage('Saved locally (offline), will sync later')
     }
   }
 
   const addCounter = async () => {
     const name = counterName.trim() || 'Counter'
-    if (username) {
-      try {
-        const created = await addCounterApi(name)
-        const nextCounters = [...counters, fromServerCounter(created)]
-        await persist(username, nextCounters)
-      } catch {
-        const nextCounters = [...counters, createLocalCounter(name)]
-        await persist(username, nextCounters)
-        setStatusMessage('Added locally while offline')
-      }
-    } else {
-      const nextCounters = [...counters, createLocalCounter(name)]
-      await persist(null, nextCounters)
-    }
+    const nextCounter = createCounter(name)
+    const nextState = upsertCounter(counterState, nextCounter)
+
+    setCounterState(nextState)
+    await putCounter(nextCounter)
+    await syncIfAuthenticated(nextState, deletedIds)
     setCounterName('')
   }
 
   const updateCounter = async (
-    localId: string,
+    counterId: string,
     operation: 'increment' | 'decrement' | 'remove',
   ) => {
-    const target = counters.find((counter) => counter.localId === localId)
-    if (!target) {
-      return
-    }
+    let nextState: CounterState
+    let nextDeletedIds = deletedIds
 
-    let nextCounters: Counter[]
     if (operation === 'increment') {
-      nextCounters = incrementLocalCounter(counters, localId)
-      if (target.serverId) {
-        try {
-          const updated = await incrementCounterApi(target.serverId)
-          nextCounters = counters.map((counter) =>
-            counter.localId === localId ? { ...counter, value: updated.value } : counter,
-          )
-        } catch {
-          setStatusMessage('Increment saved locally (offline)')
-        }
+      nextState = incrementCounter(counterState, counterId)
+      const updated = nextState.byId[counterId]
+      if (updated) {
+        await putCounter(updated)
       }
     } else if (operation === 'decrement') {
-      nextCounters = decrementLocalCounter(counters, localId)
-      if (target.serverId) {
-        try {
-          const updated = await decrementCounterApi(target.serverId)
-          nextCounters = counters.map((counter) =>
-            counter.localId === localId ? { ...counter, value: updated.value } : counter,
-          )
-        } catch {
-          setStatusMessage('Decrement saved locally (offline)')
-        }
+      nextState = decrementCounter(counterState, counterId)
+      const updated = nextState.byId[counterId]
+      if (updated) {
+        await putCounter(updated)
       }
     } else {
-      nextCounters = removeLocalCounter(counters, localId)
-      if (target.serverId) {
-        try {
-          await deleteCounter(target.serverId)
-        } catch {
-          setStatusMessage('Remove saved locally (offline)')
-        }
-      }
+      nextState = removeCounter(counterState, counterId)
+      nextDeletedIds = [...deletedIds, counterId]
+      await removeCounterRecord(counterId)
+      await saveDeletedIds(nextDeletedIds)
     }
 
-    await persist(username, nextCounters)
+    setCounterState(nextState)
+    setDeletedIds(nextDeletedIds)
+    await syncIfAuthenticated(nextState, nextDeletedIds)
   }
 
   const canLogin = useMemo(
     () => loginUsername.trim().length > 0 && loginPassword.trim().length > 0,
     [loginPassword, loginUsername],
   )
+
+  const counters = counterStateToList(counterState)
 
   return (
     <main className="app">
@@ -199,11 +205,11 @@ function App() {
 
       <ul className="counter-list">
         {counters.map((counter) => (
-          <li key={counter.localId}>
+          <li key={counter.id}>
             <span>{counter.name}: {counter.value}</span>
-            <button type="button" onClick={() => void updateCounter(counter.localId, 'increment')}>+</button>
-            <button type="button" onClick={() => void updateCounter(counter.localId, 'decrement')}>-</button>
-            <button type="button" onClick={() => void updateCounter(counter.localId, 'remove')}>Remove</button>
+            <button type="button" onClick={() => void updateCounter(counter.id, 'increment')}>+</button>
+            <button type="button" onClick={() => void updateCounter(counter.id, 'decrement')}>-</button>
+            <button type="button" onClick={() => void updateCounter(counter.id, 'remove')}>Remove</button>
           </li>
         ))}
       </ul>

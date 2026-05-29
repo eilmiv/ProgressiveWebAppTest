@@ -5,14 +5,15 @@ A starter progressive web app with a Django backend and React + TypeScript front
 ## Features
 
 - Login/logout backed by Django sessions
-- Add/remove counters and increment/decrement them
-- Counters persisted locally in IndexedDB so they can still be used offline
-- Logout clears local user data; login reloads counters from the server
+- Local-first counters with UUID identifiers
+- Each counter persisted separately in IndexedDB for offline-first updates
+- Single backend sync endpoint keeps local counters aligned with the server
+- Logout clears local user data
 
 ## Backend (Django)
 
 ```bash
-cd /tmp/workspace/eilmiv/ProgressiveWebAppTest/backend
+cd backend
 python -m venv .venv
 source .venv/bin/activate
 pip install django
@@ -26,14 +27,14 @@ API base URL: `http://127.0.0.1:8000/api`
 Run backend tests:
 
 ```bash
-cd /tmp/workspace/eilmiv/ProgressiveWebAppTest/backend
+cd backend
 python manage.py test
 ```
 
 ## Frontend (React + TypeScript)
 
 ```bash
-cd /tmp/workspace/eilmiv/ProgressiveWebAppTest/frontend
+cd frontend
 npm install
 npm run dev
 ```
@@ -43,6 +44,6 @@ Vite proxies `/api` requests to `http://127.0.0.1:8000`.
 Run frontend tests:
 
 ```bash
-cd /tmp/workspace/eilmiv/ProgressiveWebAppTest/frontend
+cd frontend
 npm test
 ```

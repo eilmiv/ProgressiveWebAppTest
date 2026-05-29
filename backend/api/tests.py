@@ -1,4 +1,5 @@
 import json
+from uuid import uuid4
 
 from django.contrib.auth.models import User
 from django.test import Client, TestCase
@@ -23,31 +24,44 @@ class CounterApiTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
 
-    def test_login_and_counter_lifecycle(self) -> None:
+    def test_login_and_counter_sync_lifecycle(self) -> None:
         self.login()
 
-        add_response = self.client.post(
-            '/api/counters/add',
-            data=json.dumps({'name': 'Work', 'value': 1}),
+        counter_id = str(uuid4())
+        sync_response = self.client.post(
+            '/api/counters/sync',
+            data=json.dumps(
+                {
+                    'upserts': [{'id': counter_id, 'name': 'Work', 'value': 2}],
+                    'deletedIds': [],
+                }
+            ),
             content_type='application/json',
         )
-        self.assertEqual(add_response.status_code, 201)
-        counter_id = add_response.json()['id']
+        self.assertEqual(sync_response.status_code, 200)
+        self.assertEqual(sync_response.json()['counters'][0]['id'], counter_id)
+        self.assertEqual(sync_response.json()['counters'][0]['value'], 2)
 
-        inc_response = self.client.post(f'/api/counters/{counter_id}/increment')
-        self.assertEqual(inc_response.status_code, 200)
-        self.assertEqual(inc_response.json()['value'], 2)
+        update_response = self.client.post(
+            '/api/counters/sync',
+            data=json.dumps(
+                {
+                    'upserts': [{'id': counter_id, 'name': 'Work', 'value': 3}],
+                    'deletedIds': [],
+                }
+            ),
+            content_type='application/json',
+        )
+        self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(update_response.json()['counters'][0]['value'], 3)
 
-        dec_response = self.client.post(f'/api/counters/{counter_id}/decrement')
-        self.assertEqual(dec_response.status_code, 200)
-        self.assertEqual(dec_response.json()['value'], 1)
-
-        list_response = self.client.get('/api/counters')
-        self.assertEqual(list_response.status_code, 200)
-        self.assertEqual(len(list_response.json()['counters']), 1)
-
-        remove_response = self.client.delete(f'/api/counters/{counter_id}')
-        self.assertEqual(remove_response.status_code, 204)
+        delete_response = self.client.post(
+            '/api/counters/sync',
+            data=json.dumps({'upserts': [], 'deletedIds': [counter_id]}),
+            content_type='application/json',
+        )
+        self.assertEqual(delete_response.status_code, 200)
+        self.assertEqual(delete_response.json()['counters'], [])
         self.assertFalse(Counter.objects.exists())
 
     def test_logout_clears_session_access(self) -> None:
